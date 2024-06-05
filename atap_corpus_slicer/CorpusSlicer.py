@@ -1,5 +1,4 @@
 import logging
-from dataclasses import dataclass
 from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from os.path import join, dirname, abspath
@@ -23,40 +22,36 @@ from atap_corpus_slicer.Operation import DefaultOperations, DATATYPE_OPERATIONS_
 pn.extension(notifications=True, design=Fast)
 
 
-@dataclass
-class Filter:
-    negation: bool
-    selected_label: str
-    operation: Callable
+class FilterParams(param.Parameterized):
+    negation = param.Boolean(label='Not', default=False, instantiate=True)
+    selected_label = param.Selector(label='Data label', instantiate=True)
 
-
-class CorpusSlicerParams(param.Parameterized):
-    selected_corpus = param.Selector(default=None)
-
-    negation = param.Boolean(label='Not', default=False)
-    selected_label = param.Selector(label='Data label', default=None)
-
-    def __init__(self, **params):
+    def __init__(self, selected_corpus: DataFrameCorpus, **params):
         super().__init__(**params)
         self.selected_operations = DefaultOperations()
-        self.num_filters: int = 1
 
-        self.panel = Column(align='center')
-        self._update_panel()
+        self.remove_filter_button = Button(
+            name="Remove",
+            button_type="warning", button_style="outline"
+        )
+
+        self.panel = Row()
+
+        self.selected_corpus: DataFrameCorpus = selected_corpus
+        self.update_corpus(selected_corpus)
 
     def __panel__(self):
-        return pn.panel(self.panel)
+        return self.panel
 
     def _update_panel(self):
-        self.panel.objects = [
-            self.param.selected_corpus,
-            Row(self.param.negation,
-                self.param.selected_label,
-                self.selected_operations)
-        ]
+        self.panel.objects = [self.param.negation,
+                              self.param.selected_label,
+                              self.selected_operations,
+                              self.remove_filter_button]
 
-    @param.depends('selected_corpus', watch=True)
-    def on_corpus_update(self):
+    def update_corpus(self, new_corpus: DataFrameCorpus):
+        self.selected_corpus = new_corpus
+
         label_list: list[str] = []
         if self.selected_corpus is not None:
             df: DataFrame = self.selected_corpus.to_dataframe()
@@ -65,8 +60,10 @@ class CorpusSlicerParams(param.Parameterized):
         if len(label_list):
             self.selected_label = label_list[0]
 
+        self._set_operations()
+
     @param.depends('selected_label', watch=True)
-    def _set_operations(self):
+    def _set_operations(self, *_):
         logger = logging.getLogger(__name__)
         if self.selected_corpus is None:
             return
@@ -81,15 +78,59 @@ class CorpusSlicerParams(param.Parameterized):
             return
 
         self.selected_operations = operations_type()
-        logger.debug(f"Operation selected: {type(self.selected_operations)}")
         self._update_panel()
 
-    @param.depends('negation', 'selected_operations.call_operation')
     def resolve_filter(self, data_value: Any) -> bool:
         result: bool = self.selected_operations.call_operation(data_value)
         if self.negation:
             return not result
         return result
+
+
+class CorpusSlicerParams(param.Parameterized):
+    selected_corpus = param.Selector(default=None)
+
+    def __init__(self, **params):
+        super().__init__(**params)
+        self.filters: list = []
+
+        self.add_filter_button = Button(
+            name="Add filter",
+            button_type="primary", button_style="solid",
+            visible=False,
+            align='end'
+        )
+        self.add_filter_button.on_click(self.add_filter)
+
+        self.control_row = Row(self.param.selected_corpus, self.add_filter_button)
+        self.panel = Column(self.control_row)
+
+    def __panel__(self):
+        return pn.panel(self.panel)
+
+    def add_filter(self, *_):
+        new_filter_param = FilterParams(self.selected_corpus)
+        self.filters.append(new_filter_param)
+
+        new_filter_param.remove_filter_button.on_click(lambda *_, filter_param=new_filter_param, r=new_filter_param.__panel__(): self.remove_filter_row(filter_param, r))
+
+        objects = self.panel.objects
+        objects.append(new_filter_param)
+
+        self.panel.objects = objects
+
+    def remove_filter_row(self, filter_param: FilterParams, filter_row: Row, *_):
+        self.filters.remove(filter_param)
+        objects = [row for row in self.panel.objects if row != filter_row]
+        self.panel.objects = objects
+
+    @param.depends('selected_corpus', watch=True)
+    def on_corpus_update(self):
+        if self.selected_corpus is not None:
+            self.add_filter_button.visible = True
+        self.filters = []
+        self.panel.objects = [self.control_row]
+        self.add_filter()
 
 
 class CorpusSlicer(pn.viewable.Viewer):
@@ -139,6 +180,7 @@ class CorpusSlicer(pn.viewable.Viewer):
             name="Slice",
             button_type="success", button_style="solid",
             height=30, width=100,
+            visible=False,
             align="center"
         )
         self.slice_corpus_button.on_click(self.slice_corpus)
@@ -166,6 +208,7 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.slicer_params.param.selected_corpus.objects = formatted_dict
         if len(corpus_dict):
             self.slicer_params.selected_corpus = list(corpus_dict.values())[-1]
+            self.slice_corpus_button.visible = True
         self.slicer_params.on_corpus_update()
 
     def on_corpora_update(self, *_):
@@ -178,14 +221,17 @@ class CorpusSlicer(pn.viewable.Viewer):
         try:
             corpus: DataFrameCorpus = self.slicer_params.selected_corpus
             corpus_df: DataFrame = corpus.to_dataframe()
-            selected_label: str = self.slicer_params.selected_label
 
-            selected_series: Series = corpus_df[selected_label]
-            cond_func: Callable = self.slicer_params.resolve_filter
+            mask = Series([True] * len(corpus.find_root()))
+            for filter_param in self.slicer_params.filters:
+                selected_label: str = filter_param.selected_label
+                selected_series: Series = corpus_df[selected_label]
+                cond_func: Callable = filter_param.resolve_filter
 
-            mask = selected_series.progress_apply(cond_func)
-            root_mask = (Series([True] * len(corpus.find_root())) & mask)
-            self.sliced_corpus = corpus.cloned(root_mask)
+                filter_mask = selected_series.progress_apply(cond_func)
+                mask = filter_mask & mask
+
+            self.sliced_corpus = corpus.cloned(mask)
 
             self.corpus_export_button.visible = True
         except BaseException as e:
