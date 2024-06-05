@@ -1,6 +1,6 @@
 # Corpus Slicer
 
-A GUI corpus filter built with the Panel library.
+A GUI corpus filter built with the Panel library
 
 ## Documentation
 
