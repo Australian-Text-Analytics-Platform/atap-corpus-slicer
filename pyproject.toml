@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "atap-corpus-slicer"
+version = "0.0.1"
+description = "A GUI corpus filter built with the Panel library."
+authors = ["Hamish Croser <hamish.croser@sydney.edu.au>"]
+readme = "README.md"
+documentation = "https://australian-text-analytics-platform.github.io/atap-corpus-slicer/DOCS.html"
+repository = "https://github.com/Australian-Text-Analytics-Platform/atap-corpus-slicer"
+license = "MIT"
+packages = [{include = "atap_corpus_slicer"}]
+exclude = ["*/.ipynb_checkpoints/*", "*log.txt"]
+
+
+[tool.poetry.dependencies]
+python = ">=3.10.0,<3.12.0"
+atap_corpus = "~=0.1.13"
+atap-corpus-loader = "~=1.5.3"
+pandas = "~=2.0"
+panel = "1.4.4"
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+jupyterlab = "4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
