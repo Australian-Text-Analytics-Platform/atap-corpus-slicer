@@ -218,24 +218,23 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.set_corpus_selector_value(corpus_dict)
 
     def slice_corpus(self, *_):
-        try:
-            corpus: DataFrameCorpus = self.slicer_params.selected_corpus
-            corpus_df: DataFrame = corpus.to_dataframe()
+        self.slice_corpus_button.button_style = "outline"
+        corpus: DataFrameCorpus = self.slicer_params.selected_corpus
+        corpus_df: DataFrame = corpus.to_dataframe()
 
-            mask = Series([True] * len(corpus.find_root()))
-            for filter_param in self.slicer_params.filters:
-                selected_label: str = filter_param.selected_label
-                selected_series: Series = corpus_df[selected_label]
-                cond_func: Callable = filter_param.resolve_filter
+        mask = Series([True] * len(corpus.find_root()))
+        for filter_param in self.slicer_params.filters:
+            selected_label: str = filter_param.selected_label
+            selected_series: Series = corpus_df[selected_label]
+            cond_func: Callable = filter_param.resolve_filter
 
-                filter_mask = selected_series.progress_apply(cond_func)
-                mask = filter_mask & mask
+            filter_mask = selected_series.progress_apply(cond_func)
+            mask = filter_mask & mask
 
-            self.sliced_corpus = corpus.cloned(mask)
+        self.sliced_corpus = corpus.cloned(mask)
 
-            self.corpus_export_button.visible = True
-        except BaseException as e:
-            self.LOGGER.debug(f"{type(e)}: {str(e)}")
+        self.slice_corpus_button.button_style = "solid"
+        self.corpus_export_button.visible = True
 
     def get_sliced_corpus(self) -> Optional[DataFrameCorpus]:
         return self.sliced_corpus
