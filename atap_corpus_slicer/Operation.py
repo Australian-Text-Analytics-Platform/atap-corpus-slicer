@@ -7,7 +7,7 @@ from typing import Callable, Type, Any, Union
 import numpy
 import pandas as pd
 import param
-from panel import Row
+from panel import Row, Column
 
 
 class Operations(param.Parameterized):
@@ -36,7 +36,6 @@ class DefaultOperations(Operations):
 class TextOperations(Operations):
     @staticmethod
     def text_equal(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        query_value = query_value
         if ignore_case:
             data_value = data_value.lower()
             query_value = query_value.lower()
@@ -44,7 +43,6 @@ class TextOperations(Operations):
 
     @staticmethod
     def text_contains(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        query_value = query_value
         if ignore_case:
             data_value = data_value.lower()
             query_value = query_value.lower()
@@ -52,7 +50,6 @@ class TextOperations(Operations):
 
     @staticmethod
     def starts_with(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        query_value = query_value
         if ignore_case:
             data_value = data_value.lower()
             query_value = query_value.lower()
@@ -60,7 +57,6 @@ class TextOperations(Operations):
 
     @staticmethod
     def ends_with(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        query_value = query_value
         if ignore_case:
             data_value = data_value.lower()
             query_value = query_value.lower()
@@ -118,20 +114,36 @@ class BooleanOperations(Operations):
 
 
 class DateOperations(Operations):
-    OPERATIONS_MAP: dict[str, Callable] = {"is the same as": op.eq, "is after": op.gt,
-                                           "is after/the same": op.ge, "is before": op.lt,
-                                           "is before/the same": op.le}
+    @staticmethod
+    def inside(data_value: datetime.date, start_date: datetime.date,
+               end_date: datetime.date, inclusive: bool) -> bool:
+        if inclusive:
+            return start_date <= data_value <= end_date
+        else:
+            return start_date < data_value < end_date
+
+    @staticmethod
+    def outside(data_value: datetime.date, start_date: datetime.date,
+                end_date: datetime.date, inclusive: bool) -> bool:
+        if inclusive:
+            return (start_date > data_value) or (end_date < data_value)
+        else:
+            return (start_date >= data_value) or (end_date <= data_value)
+
+    OPERATIONS_MAP: dict[str, Callable] = {"is inside of": inside, "is outside of": outside}
 
     operation = param.Selector(objects=OPERATIONS_MAP)
-    query_value = param.CalendarDate()
+    start_date = param.CalendarDate()
+    end_date = param.CalendarDate()
+    inclusive = param.Boolean()
 
     def __panel__(self):
-        return Row(self.param.operation, self.param.query_value)
+        return Row(self.param.operation, Column(self.param.start_date, self.param.end_date), self.param.inclusive)
 
-    @param.depends('query_value')
+    @param.depends('start_date', 'end_date', 'inclusive')
     def call_operation(self, data_value: pd.Timestamp) -> bool:
         data_value = data_value.date()
-        return self.operation(data_value, self.query_value)
+        return self.operation(data_value, self.start_date, self.end_date, self.inclusive)
 
 
 class DataType(Enum):
