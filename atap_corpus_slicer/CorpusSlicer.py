@@ -1,4 +1,5 @@
 import logging
+import traceback
 from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from os.path import join, dirname, abspath
@@ -23,12 +24,12 @@ pn.extension(notifications=True, design=Fast)
 
 
 class FilterParams(param.Parameterized):
-    negation = param.Boolean(label='Not', default=False, instantiate=True)
+    negation = param.Boolean(label='Negate', default=False, instantiate=True)
     selected_label = param.Selector(label='Data label', instantiate=True)
 
     def __init__(self, selected_corpus: DataFrameCorpus, **params):
         super().__init__(**params)
-        self.selected_operations = DefaultOperations()
+        self.selected_operations = DefaultOperations(Series())
 
         self.remove_filter_button = Button(
             name="Remove",
@@ -44,9 +45,9 @@ class FilterParams(param.Parameterized):
         return self.panel
 
     def _update_panel(self):
-        self.panel.objects = [self.param.negation,
-                              self.param.selected_label,
+        self.panel.objects = [self.param.selected_label,
                               self.selected_operations,
+                              self.param.negation,
                               self.remove_filter_button]
 
     def update_corpus(self, new_corpus: DataFrameCorpus):
@@ -68,16 +69,17 @@ class FilterParams(param.Parameterized):
         if self.selected_corpus is None:
             return
         df: DataFrame = self.selected_corpus.to_dataframe()
+        selected_data_series: Series = df[self.selected_label]
         label_datatype_str: str = str(df.dtypes.get(self.selected_label)).lower()
         try:
             label_datatype: DataType = DataType(label_datatype_str)
             operations_type: Type[Operations] = DATATYPE_OPERATIONS_MAP[label_datatype]
         except ValueError as e:
             logger.debug(f"{type(e)}: {str(e)}")
-            self.selected_operations = DefaultOperations()
+            self.selected_operations = DefaultOperations(selected_data_series)
             return
 
-        self.selected_operations = operations_type()
+        self.selected_operations = operations_type(selected_data_series)
         self._update_panel()
 
     def resolve_filter(self, data_value: Any) -> bool:
@@ -107,6 +109,9 @@ class CorpusSlicerParams(param.Parameterized):
 
     def __panel__(self):
         return pn.panel(self.panel)
+
+    def reset_filters(self):
+        self.on_corpus_update()
 
     def add_filter(self, *_):
         new_filter_param = FilterParams(self.selected_corpus)
@@ -160,7 +165,7 @@ class CorpusSlicer(pn.viewable.Viewer):
 
         CorpusSlicer.LOGGER.info('Logger started')
 
-    def __init__(self, corpora: Optional[BaseCorpora] = None, **params):
+    def __init__(self, root_directory: str = './', **params):
         super().__init__(**params)
 
         CorpusSlicer.setup_logger()
@@ -169,42 +174,36 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.progress_bar.pandas()
         self.slicer_params = CorpusSlicerParams()
 
-        self.corpus_export_button = FileDownload(
-            filename=f"sliced-corpus.csv",
-            callback=self.export_csv,
-            visible=False,
-            button_type="primary",
-            button_style="solid")
-
         self.slice_corpus_button = Button(
             name="Slice",
             button_type="success", button_style="solid",
             height=30, width=100,
             visible=False,
-            align="center"
+            align="start"
         )
         self.slice_corpus_button.on_click(self.slice_corpus)
 
-        self.panel = pn.Column(self.slicer_params,
-                               self.progress_bar,
-                               Row(self.slice_corpus_button, self.corpus_export_button))
+        self.slicer_panel = pn.panel(pn.Column(self.slicer_params,
+                                      self.progress_bar,
+                                      self.slice_corpus_button,
+                                      height=500))
 
-        self.sliced_corpus: Optional[DataFrameCorpus] = None
-        self.corpus_loader: Optional[CorpusLoader] = None
-        if corpora is None:
-            self.corpus_loader = CorpusLoader("corpus_data")
-            self.corpus_loader.set_build_callback(self.on_corpora_update)
-            self.on_corpora_update()
-            self.panel.objects = [self.corpus_loader] + self.panel.objects
-        else:
-            corpus_dict: dict[str, DataFrameCorpus] = {corpus.name: corpus for corpus in corpora.items()}
-            self.set_corpus_selector_value(corpus_dict)
+        self.corpus_loader: CorpusLoader = CorpusLoader(root_directory)
+        self.corpus_loader.set_build_callback(self.on_corpora_update)
+        self.on_corpora_update()
+        self.corpus_loader.add_tab("Corpus Slicer", self.slicer_panel)
+        self.corpora: BaseCorpora = self.corpus_loader.get_mutable_corpora()
 
     def __panel__(self):
-        return pn.panel(self.panel)
+        return self.corpus_loader
 
     def set_corpus_selector_value(self, corpus_dict: dict[str, DataFrameCorpus]):
-        formatted_dict: dict[str, DataFrameCorpus] = {f"{name} | docs: {len(c)} | parent: {c.parent}": c for name, c in corpus_dict.items()}
+        formatted_dict: dict[str, DataFrameCorpus] = {}
+        for name, corpus in corpus_dict.items():
+            label = f"{name} | docs: {len(corpus)}"
+            if corpus.parent:
+                label += f" | parent: {corpus.parent.name}"
+            formatted_dict[label] = corpus
         self.slicer_params.param.selected_corpus.objects = formatted_dict
         if len(corpus_dict):
             self.slicer_params.selected_corpus = list(corpus_dict.values())[-1]
@@ -218,45 +217,32 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.set_corpus_selector_value(corpus_dict)
 
     def slice_corpus(self, *_):
-        self.slice_corpus_button.button_style = "outline"
-        corpus: DataFrameCorpus = self.slicer_params.selected_corpus
-        corpus_df: DataFrame = corpus.to_dataframe()
+        try:
+            self.progress_bar.visible = True
+            self.slice_corpus_button.button_style = "outline"
+            corpus: DataFrameCorpus = self.slicer_params.selected_corpus
+            corpus_df: DataFrame = corpus.to_dataframe()
 
-        mask = Series([True] * len(corpus.find_root()))
-        for filter_param in self.slicer_params.filters:
-            selected_label: str = filter_param.selected_label
-            selected_series: Series = corpus_df[selected_label]
-            cond_func: Callable = filter_param.resolve_filter
+            mask = Series([True] * len(corpus.find_root()))
+            for filter_param in self.slicer_params.filters:
+                selected_label: str = filter_param.selected_label
+                selected_series: Series = corpus_df[selected_label]
+                cond_func: Callable = filter_param.resolve_filter
 
-            filter_mask = selected_series.progress_apply(cond_func)
-            mask = filter_mask & mask
+                filter_mask = selected_series.progress_apply(cond_func)
+                filter_bool_mask = filter_mask.astype('bool')
+                mask = filter_bool_mask & mask
 
-        self.sliced_corpus = corpus.cloned(mask)
+            sliced_corpus = corpus.cloned(mask)
 
-        self.slice_corpus_button.button_style = "solid"
-        self.corpus_export_button.visible = True
+            self.corpora.add(sliced_corpus)
 
-    def get_sliced_corpus(self) -> Optional[DataFrameCorpus]:
-        return self.sliced_corpus
+            self.on_corpora_update()
+            self.slicer_params.reset_filters()
 
-    def export_csv(self) -> Optional[BytesIO]:
-        if self.sliced_corpus is None:
-            return
-
-        csv_object = BytesIO()
-        if len(self.sliced_corpus) == 0:
-            return csv_object
-
-        df: DataFrame = self.sliced_corpus.to_dataframe()
-        chunks = np.array_split(df.index, min(len(df), 1000))
-        self.progress_bar.visible = True
-        with self.progress_bar(total=len(df), desc="Exporting to CSV", unit="documents", leave=False) as pbar:
-            df.loc[chunks[0]].to_csv(csv_object, mode='w', index=False)
-            pbar.update(len(chunks[0]))
-            for chunk, subset in enumerate(chunks[1:]):
-                df.loc[subset].to_csv(csv_object, header=False, mode='a', index=False)
-                pbar.update(len(subset))
-        csv_object.seek(0)
-        self.progress_bar.visible = False
-
-        return csv_object
+            self.slice_corpus_button.button_style = "solid"
+            self.progress_bar.visible = False
+        except Exception:
+            self.LOGGER.error(traceback.format_exc())
+            self.slice_corpus_button.button_style = "solid"
+            self.progress_bar.visible = False

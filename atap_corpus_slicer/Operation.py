@@ -1,36 +1,33 @@
-import operator as op
 import re
-import datetime
 from enum import Enum
-from typing import Callable, Type, Any, Union
+from typing import Callable, Type, Any
 
-import numpy
 import pandas as pd
 import param
-from panel import Row, Column
+import panel as pn
+from pandas import Series
+
+pn.extension()
 
 
 class Operations(param.Parameterized):
+    def __init__(self, data_series: Series, **params):
+        super().__init__(**params)
+        self.data_series: Series = data_series
+
     def call_operation(self, data_value: Any) -> bool:
         raise NotImplementedError()
 
 
 class DefaultOperations(Operations):
-    @staticmethod
-    def str_equals(data_value: Any, query_value: str) -> bool:
-        return str(data_value) == query_value
-
-    OPERATIONS_MAP: dict[str, Callable] = {"equals": str_equals}
-
-    operation = param.Selector(objects=OPERATIONS_MAP)
     query_value = param.String()
 
     def __panel__(self):
-        return Row(self.param.operation, self.param.query_value)
+        return pn.Row("is equal to", self.param.query_value)
 
     @param.depends('query_value')
     def call_operation(self, data_value: Any) -> bool:
-        return self.operation(data_value, self.query_value)
+        return str(data_value) == self.query_value
 
 
 class TextOperations(Operations):
@@ -64,7 +61,9 @@ class TextOperations(Operations):
 
     @staticmethod
     def regex_match(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        flag: int = int(ignore_case)
+        flag = 0
+        if ignore_case:
+            flag = re.I
         return re.search(query_value, data_value, flag) is not None
 
     OPERATIONS_MAP: dict[str, Callable] = {"equals": text_equal, "contains": text_contains,
@@ -76,74 +75,89 @@ class TextOperations(Operations):
     ignore_case = param.Boolean()
 
     def __panel__(self):
-        return Row(self.param.operation, self.param.query_value, self.param.ignore_case)
+        return pn.Row(self.param.operation, self.param.query_value, self.param.ignore_case)
 
     @param.depends('query_value', 'ignore_case')
     def call_operation(self, data_value: str) -> bool:
         return self.operation(data_value, self.query_value, self.ignore_case)
 
 
-class NumberOperations(Operations):
-    OPERATIONS_MAP: dict[str, Callable] = {"equals": op.eq, "is greater than": op.gt,
-                                           "is greater than/equals": op.ge, "is less than": op.lt,
-                                           "is less than/equals": op.le}
+class IntegerOperations(Operations):
+    data_range = pn.widgets.EditableRangeSlider(step=1)
 
-    operation = param.Selector(objects=OPERATIONS_MAP)
-    query_value = param.Number()
+    def __init__(self, data_series: Series, **params):
+        super().__init__(data_series, **params)
+        self.data_range.start = data_series.min()
+        self.data_range.end = data_series.max()
+        self.data_range.value = (self.data_range.start, self.data_range.end)
 
     def __panel__(self):
-        return Row(self.param.operation, self.param.query_value)
+        return pn.Row("is within the range", self.data_range)
 
-    @param.depends('query_value')
-    def call_operation(self, data_value: Union[int, float]) -> bool:
-        return self.operation(data_value, self.query_value)
+    @param.depends('data_range')
+    def call_operation(self, data_value: int) -> bool:
+        return self.data_range.value[0] <= data_value <= self.data_range.value[1]
+
+
+class FloatOperations(Operations):
+    data_range = pn.widgets.EditableRangeSlider()
+
+    def __init__(self, data_series: Series, **params):
+        super().__init__(data_series, **params)
+        self.data_range.start = data_series.min()
+        self.data_range.end = data_series.max()
+        self.data_range.value = (self.data_range.start, self.data_range.end)
+
+    def __panel__(self):
+        return pn.Row("is within the range", self.data_range)
+
+    @param.depends('data_range')
+    def call_operation(self, data_value: float) -> bool:
+        return self.data_range.value[0] <= data_value <= self.data_range.value[1]
 
 
 class BooleanOperations(Operations):
-    OPERATIONS_MAP: dict[str, Callable] = {"equals": op.eq}
-
-    operation = param.Selector(objects=OPERATIONS_MAP)
-    query_value = param.Boolean()
+    query_value = param.Selector(objects=[True, False])
 
     def __panel__(self):
-        return Row(self.param.operation, self.param.query_value)
+        return pn.Row("is equal to", self.param.query_value)
 
     @param.depends('query_value')
     def call_operation(self, data_value: bool) -> bool:
-        return self.operation(data_value, self.query_value)
+        return data_value == self.query_value
 
 
 class DateOperations(Operations):
-    @staticmethod
-    def inside(data_value: datetime.date, start_date: datetime.date,
-               end_date: datetime.date, inclusive: bool) -> bool:
-        if inclusive:
-            return start_date <= data_value <= end_date
-        else:
-            return start_date < data_value < end_date
+    date_range = pn.widgets.DatetimeRangePicker()
 
-    @staticmethod
-    def outside(data_value: datetime.date, start_date: datetime.date,
-                end_date: datetime.date, inclusive: bool) -> bool:
-        if inclusive:
-            return (start_date > data_value) or (end_date < data_value)
-        else:
-            return (start_date >= data_value) or (end_date <= data_value)
-
-    OPERATIONS_MAP: dict[str, Callable] = {"is inside of": inside, "is outside of": outside}
-
-    operation = param.Selector(objects=OPERATIONS_MAP)
-    start_date = param.CalendarDate()
-    end_date = param.CalendarDate()
-    inclusive = param.Boolean()
+    def __init__(self, data_series: Series, **params):
+        super().__init__(data_series, **params)
+        self.date_range.start = data_series.min()
+        self.date_range.end = data_series.max()
+        self.date_range.value = (self.date_range.start, self.date_range.end)
 
     def __panel__(self):
-        return Row(self.param.operation, Column(self.param.start_date, self.param.end_date), self.param.inclusive)
+        return pn.Row("is within the range", self.date_range)
 
-    @param.depends('start_date', 'end_date', 'inclusive')
+    @param.depends('date_range')
     def call_operation(self, data_value: pd.Timestamp) -> bool:
-        data_value = data_value.date()
-        return self.operation(data_value, self.start_date, self.end_date, self.inclusive)
+        data_value = data_value.to_pydatetime()
+        return self.date_range.value[0] <= data_value <= self.date_range.value[1]
+
+
+class CategoryOperations(Operations):
+    category = pn.widgets.MultiChoice(name='Category')
+
+    def __init__(self, data_series: Series, **params):
+        super().__init__(data_series, **params)
+        self.category.options = list(data_series.unique())
+
+    def __panel__(self):
+        return pn.Row("is one of", self.category)
+
+    @param.depends('category')
+    def call_operation(self, data_value: Any) -> bool:
+        return bool(data_value in self.category.value)
 
 
 class DataType(Enum):
@@ -153,17 +167,16 @@ class DataType(Enum):
     TEXT = 'string'
     INTEGER = 'int64'
     DECIMAL = 'float64'
-    BOOLEAN = 'boolean'
+    BOOLEAN = 'bool'
     DATETIME = 'datetime64[ns]'
     CATEGORY = 'category'
 
 
 DATATYPE_OPERATIONS_MAP: dict[DataType, Type[Operations]] = {
-
     DataType.TEXT: TextOperations,
-    DataType.INTEGER: NumberOperations,
-    DataType.DECIMAL: NumberOperations,
+    DataType.INTEGER: IntegerOperations,
+    DataType.DECIMAL: FloatOperations,
     DataType.BOOLEAN: BooleanOperations,
     DataType.DATETIME: DateOperations,
-    DataType.CATEGORY: DefaultOperations
+    DataType.CATEGORY: CategoryOperations
 }
