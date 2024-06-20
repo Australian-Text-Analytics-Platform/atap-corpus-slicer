@@ -16,7 +16,7 @@ from panel import Row, Column
 from panel.theme import Fast
 
 from atap_corpus_loader import CorpusLoader, EventType
-from panel.widgets import FileDownload, Tqdm, Button
+from panel.widgets import FileDownload, Tqdm, Button, TextInput
 
 from atap_corpus_slicer.Operation import DefaultOperations, DATATYPE_OPERATIONS_MAP, Operations, DataType
 
@@ -173,6 +173,7 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.progress_bar = Tqdm(visible=False)
         self.progress_bar.pandas()
         self.slicer_params = CorpusSlicerParams()
+        self.corpus_name_input = TextInput(placeholder='Sub-corpus name', width=150)
 
         self.slice_corpus_button = Button(
             name="Slice",
@@ -185,7 +186,7 @@ class CorpusSlicer(pn.viewable.Viewer):
 
         self.slicer_panel = pn.panel(pn.Column(self.slicer_params,
                                                self.progress_bar,
-                                               self.slice_corpus_button,
+                                               pn.Row(self.corpus_name_input, self.slice_corpus_button),
                                                height=500))
 
         self.corpus_loader: CorpusLoader = CorpusLoader(root_directory)
@@ -210,6 +211,7 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.slicer_params.param.selected_corpus.objects = formatted_dict
         if len(corpus_dict):
             self.slicer_params.selected_corpus = list(corpus_dict.values())[-1]
+            self.corpus_name_input.visible = True
             self.slice_corpus_button.visible = True
         self.slicer_params.on_corpus_update()
 
@@ -237,6 +239,8 @@ class CorpusSlicer(pn.viewable.Viewer):
                 mask = filter_bool_mask & mask
 
             sliced_corpus = corpus.cloned(mask)
+            if self.corpus_name_input.value:
+                sliced_corpus.rename(self.corpus_name_input.value)
 
             self.corpora.add(sliced_corpus)
 
