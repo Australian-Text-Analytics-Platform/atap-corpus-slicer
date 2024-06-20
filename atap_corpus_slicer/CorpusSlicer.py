@@ -186,7 +186,6 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.slicer_panel = pn.panel(pn.Column(self.slicer_params,
                                                self.progress_bar,
                                                self.slice_corpus_button,
-                                               self.run_spacy_button,
                                                height=500))
 
         self.corpus_loader: CorpusLoader = CorpusLoader(root_directory)
