@@ -15,7 +15,7 @@ from panel import Row, Column
 
 from panel.theme import Fast
 
-from atap_corpus_loader import CorpusLoader
+from atap_corpus_loader import CorpusLoader, EventType
 from panel.widgets import FileDownload, Tqdm, Button
 
 from atap_corpus_slicer.Operation import DefaultOperations, DATATYPE_OPERATIONS_MAP, Operations, DataType
