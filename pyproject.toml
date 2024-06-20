@@ -14,7 +14,7 @@ exclude = ["*/.ipynb_checkpoints/*", "*log.txt"]
 [tool.poetry.dependencies]
 python = ">=3.10.0,<3.12.0"
 atap_corpus = "~=0.1.13"
-atap-corpus-loader = "~=1.6.0"
+atap-corpus-loader = "~=1.6.1"
 pandas = "~=2.0"
 panel = "1.4.4"
 numpy = "<2.0"
