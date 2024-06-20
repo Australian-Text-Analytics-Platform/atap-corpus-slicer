@@ -14,9 +14,12 @@ exclude = ["*/.ipynb_checkpoints/*", "*log.txt"]
 [tool.poetry.dependencies]
 python = ">=3.10.0,<3.12.0"
 atap_corpus = "~=0.1.13"
-atap-corpus-loader = "~=1.5.5"
+atap-corpus-loader = "~=1.6.0"
 pandas = "~=2.0"
 panel = "1.4.4"
+numpy = "<2.0"
+spacy = "~=3.7.5"
+en_core_web_sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl" }
 
 [tool.poetry.group.dev]
 optional = true

@@ -184,15 +184,19 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.slice_corpus_button.on_click(self.slice_corpus)
 
         self.slicer_panel = pn.panel(pn.Column(self.slicer_params,
-                                      self.progress_bar,
-                                      self.slice_corpus_button,
-                                      height=500))
+                                               self.progress_bar,
+                                               self.slice_corpus_button,
+                                               self.run_spacy_button,
+                                               height=500))
 
         self.corpus_loader: CorpusLoader = CorpusLoader(root_directory)
-        self.corpus_loader.set_build_callback(self.on_corpora_update)
+        self.corpora = self.corpus_loader.get_mutable_corpora()
+
+        self.corpus_loader.register_event_callback(EventType.BUILD, self.on_corpora_update)
+        self.corpus_loader.register_event_callback(EventType.RENAME, self.on_corpora_update)
+        self.corpus_loader.register_event_callback(EventType.DELETE, self.on_corpora_update)
         self.on_corpora_update()
         self.corpus_loader.add_tab("Corpus Slicer", self.slicer_panel)
-        self.corpora: BaseCorpora = self.corpus_loader.get_mutable_corpora()
 
     def __panel__(self):
         return self.corpus_loader
