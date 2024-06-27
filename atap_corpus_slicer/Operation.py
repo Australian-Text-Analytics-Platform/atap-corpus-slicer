@@ -92,9 +92,6 @@ class TextOperations(Operations):
                               pn.bind(self.toggle_count_inputs, self.operation)]
 
     def toggle_count_inputs(self, *_):
-        logger = logging.getLogger("corpus-slicer")
-        logger.info(f"Operation: {self.operation.value}, {id(self.operation.value)}")
-        logger.info(f"Contains operation: {self.text_contains}, {id(self.text_contains)}")
         count_op = self.operation.value == self.text_contains
         self.count_bound_fn.visible = count_op
         self.count_threshold.visible = count_op
