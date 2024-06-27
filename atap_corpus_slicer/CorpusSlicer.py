@@ -2,10 +2,9 @@ import logging
 import traceback
 from logging.handlers import RotatingFileHandler
 from os.path import join, dirname, abspath
-from typing import Optional, Callable, Any, Type, Union
+from typing import Callable, Any, Type
 
 import panel as pn
-import spacy
 import param
 from atap_corpus.corpus.base import BaseCorpora
 from atap_corpus.corpus.corpus import DataFrameCorpus
@@ -16,7 +15,6 @@ from panel.theme import Fast
 
 from atap_corpus_loader import CorpusLoader, EventType
 from panel.widgets import Tqdm, Button, TextInput
-from spacy import Language
 from spacy.tokens import Doc
 from tqdm import tqdm
 
@@ -31,11 +29,10 @@ class FilterParams(param.Parameterized):
     negation = param.Boolean(label='Negate', default=False, instantiate=True)
     selected_label = param.Selector(label='Data label', instantiate=True)
 
-    def __init__(self, selected_corpus: DataFrameCorpus, nlp: Optional[spacy.Language] = None, **params):
+    def __init__(self, selected_corpus: DataFrameCorpus, spacy_filter: bool = False, **params):
         super().__init__(**params)
         self.selected_operations = DefaultOperations(Series())
-        self.nlp: Optional[spacy.Language] = nlp
-        self.spacy_filter: bool = (self.nlp is not None) and selected_corpus.uses_spacy()
+        self.spacy_filter: bool = spacy_filter and selected_corpus.uses_spacy()
 
         self.remove_filter_button = Button(
             name="Remove",
@@ -77,10 +74,11 @@ class FilterParams(param.Parameterized):
         df: DataFrame = self.selected_corpus.to_dataframe()
         selected_data_series: Series = df[self.selected_label]
         if self.spacy_filter:
-            self.selected_operations = SpacyOperations(self.nlp, selected_data_series)
+            self.selected_operations = SpacyOperations(selected_data_series)
             self._update_panel()
             return
         elif self.selected_corpus.uses_spacy() and (self.selected_label == self.selected_corpus._COL_DOC):
+            self.selected_operations = TextOperations(selected_data_series)
             self.selected_operations = TextOperations(selected_data_series)
             self._update_panel()
             return
@@ -105,9 +103,8 @@ class FilterParams(param.Parameterized):
 class CorpusSlicerParams(param.Parameterized):
     selected_corpus = param.Selector(default=None)
 
-    def __init__(self, nlp: spacy.Language, **params):
+    def __init__(self, **params):
         super().__init__(**params)
-        self.nlp: spacy.Language = nlp
         self.filters: list = []
 
         self.add_filter_button = Button(
@@ -135,10 +132,7 @@ class CorpusSlicerParams(param.Parameterized):
         self.on_corpus_update()
 
     def add_filter(self, event=None, advanced: bool = False):
-        if advanced:
-            new_filter_param = FilterParams(self.selected_corpus, nlp=self.nlp)
-        else:
-            new_filter_param = FilterParams(self.selected_corpus)
+        new_filter_param = FilterParams(self.selected_corpus, spacy_filter=advanced)
         self.filters.append(new_filter_param)
 
         new_filter_param.remove_filter_button.on_click(lambda *_, filter_param=new_filter_param, r=new_filter_param.__panel__(): self.remove_filter_row(filter_param, r))
@@ -167,41 +161,57 @@ class CorpusSlicerParams(param.Parameterized):
         self.add_filter(advanced=advanced)
 
 
-@Language.component("gather_attributes")
-def gather_attributes(doc: Doc):
-    if not len(doc):
-        doc._.attr_vals = {}
-        doc._.custom_attr_vals = {}
+class SpacyLabeller:
+    @staticmethod
+    def label_spacy_attributes(corpus: DataFrameCorpus):
+        if not corpus.uses_spacy():
+            return
+        SpacyLabeller.add_extensions()
+        for doc in corpus:
+            SpacyLabeller.gather_attributes(doc)
+
+    @staticmethod
+    def add_extensions():
+        if not Doc.has_extension("attr_vals"):
+            Doc.set_extension("attr_vals", default=None)
+        if not Doc.has_extension("custom_attr_vals"):
+            Doc.set_extension("custom_attr_vals", default=None)
+
+    @staticmethod
+    def gather_attributes(doc: Doc):
+        if not len(doc):
+            doc._.attr_vals = {}
+            doc._.custom_attr_vals = {}
+            return doc
+
+        attribute_values: dict[str, set[str]] = {}
+        for attr in dir(doc[0]):
+            is_method = callable(getattr(doc[0], attr))
+            if (not attr.startswith('_')) and (not is_method):
+                attribute_values[attr] = set()
+        custom_attribute_values: dict[str, set[str]] = {}
+        for custom_attr in dir(doc[0]._):
+            is_method = callable(getattr(doc[0]._, custom_attr))
+            if not is_method:
+                custom_attribute_values[custom_attr] = set()
+
+        for tok in doc:
+            for attr in attribute_values.keys():
+                value = getattr(tok, attr)
+                try:
+                    attribute_values[attr].add(value)
+                except TypeError:
+                    pass
+            for attr in custom_attribute_values.keys():
+                value = getattr(tok._, attr)
+                try:
+                    custom_attribute_values[attr].add(value)
+                except TypeError:
+                    pass
+
+        doc._.attr_vals = attribute_values
+        doc._.custom_attr_vals = custom_attribute_values
         return doc
-
-    attribute_values: dict[str, set[str]] = {}
-    for attr in dir(doc[0]):
-        is_method = callable(getattr(doc[0], attr))
-        if (not attr.startswith('_')) and (not is_method):
-            attribute_values[attr] = set()
-    custom_attribute_values: dict[str, set[str]] = {}
-    for custom_attr in dir(doc[0]._):
-        is_method = callable(getattr(doc[0]._, custom_attr))
-        if not is_method:
-            custom_attribute_values[custom_attr] = set()
-
-    for tok in doc:
-        for attr in attribute_values.keys():
-            value = getattr(tok, attr)
-            try:
-                attribute_values[attr].add(value)
-            except TypeError:
-                pass
-        for attr in custom_attribute_values.keys():
-            value = getattr(tok._, attr)
-            try:
-                custom_attribute_values[attr].add(value)
-            except TypeError:
-                pass
-
-    doc._.attr_vals = attribute_values
-    doc._.custom_attr_vals = custom_attribute_values
-    return doc
 
 
 class CorpusSlicer(pn.viewable.Viewer):
@@ -236,46 +246,17 @@ class CorpusSlicer(pn.viewable.Viewer):
         logger = logging.getLogger(CorpusSlicer.LOGGER_NAME)
         logger.log(level, msg)
 
-    @staticmethod
-    def setup_nlp(nlp: Union[str, spacy.Language]):
-        if isinstance(nlp, str):
-            nlp = spacy.load(nlp)
-        if not isinstance(nlp, spacy.Language):
-            raise TypeError(f"Expected supplied nlp to be Spacy Language, instead got {type(nlp)}")
-
-        if Doc.has_extension("attr_vals"):
-            Doc.remove_extension("attr_vals")
-        if Doc.has_extension("custom_attr_vals"):
-            Doc.remove_extension("custom_attr_vals")
-        if nlp.has_pipe("gather_attributes"):
-            nlp.remove_pipe("gather_attributes")
-        Doc.set_extension("attr_vals", default=None)
-        Doc.set_extension("custom_attr_vals", default=None)
-        nlp.add_pipe("gather_attributes", last=True)
-
-        return nlp
-
     def __init__(self,
                  root_directory: str = './',
-                 nlp: Union[str, spacy.Language] = "en_core_web_sm",
                  run_logger: bool = False,
                  **params):
         super().__init__(**params)
 
         CorpusSlicer.setup_logger(CorpusSlicer.LOGGER_NAME, run_logger)
-        self.nlp = self.setup_nlp(nlp)
 
         self.progress_bar = Tqdm(visible=False)
         self.progress_bar.pandas()
-        self.slicer_params = CorpusSlicerParams(nlp=self.nlp)
-
-        self.run_spacy_button = Button(
-            name="Convert to advanced corpus",
-            button_type="primary", button_style="solid",
-            visible=False,
-            align="start"
-        )
-        self.run_spacy_button.on_click(self.run_spacy)
+        self.slicer_params = CorpusSlicerParams()
 
         self.slice_corpus_button = Button(
             name="Slice",
@@ -291,12 +272,11 @@ class CorpusSlicer(pn.viewable.Viewer):
 
         self.slicer_panel = pn.panel(pn.Column(self.slicer_params,
                                                self.progress_bar,
-                                               self.run_spacy_button,
                                                Row(self.slice_corpus_button,
                                                    self.sliced_name_field),
                                                height=500))
 
-        self.corpus_loader: CorpusLoader = CorpusLoader(root_directory)
+        self.corpus_loader: CorpusLoader = CorpusLoader(root_directory, run_logger=run_logger)
         self.corpora = self.corpus_loader.get_mutable_corpora()
 
         self.corpus_loader.register_event_callback(EventType.BUILD, self.on_corpora_update)
@@ -333,48 +313,26 @@ class CorpusSlicer(pn.viewable.Viewer):
         if len(corpus_dict):
             self.slicer_params.selected_corpus = list(corpus_dict.values())[-1]
             corpus_exists = True
-            corpus_uses_spacy = self.slicer_params.selected_corpus.uses_spacy()
         else:
             self.slicer_params.selected_corpus = None
             corpus_exists = False
-            corpus_uses_spacy = False
 
         self.slice_corpus_button.visible = corpus_exists
         self.sliced_name_field.visible = corpus_exists
-        self.run_spacy_button.visible = corpus_exists
-        self.run_spacy_button.disabled = corpus_exists and corpus_uses_spacy
 
         self.slicer_params.on_corpus_update()
 
-    def on_corpora_update(self, *_):
+    def on_corpora_update(self, corpus=None, *_):
         if self.corpus_loader is None:
             return
+        if (corpus is not None) and (corpus.uses_spacy()):
+            SpacyLabeller.label_spacy_attributes(corpus)
         corpus_dict: dict[str, DataFrameCorpus] = {}
         corpora_list: list = self.corpora.items()
         for corpus in corpora_list:
             corpus_dict[corpus.name] = corpus
 
         self.set_corpus_selector_value(corpus_dict)
-
-    def run_spacy(self, *_):
-        try:
-            self.run_spacy_button.button_style = "outline"
-            if self.slicer_params.selected_corpus is not None:
-                self.slicer_params.selected_corpus.run_spacy(self.nlp)
-        except Exception as e:
-            self.run_spacy_button.button_style = "solid"
-            self.log(traceback.format_exc(), logging.ERROR)
-            self.display_error(f"Error converting corpus: {e}")
-            return
-
-        try:
-            self.slicer_params.on_corpus_update()
-        except Exception as e:
-            self.log(traceback.format_exc(), logging.ERROR)
-            self.display_error(f"Error converting corpus: {e}")
-        self.run_spacy_button.button_style = "solid"
-        self.run_spacy_button.disabled = True
-        self.display_success("Corpus converted to advanced successfully")
 
     def slice_corpus(self, *_):
         new_name = self.sliced_name_field.value_input

@@ -2,7 +2,6 @@ import re
 from enum import Enum
 from typing import Callable, Type, Any, Union
 
-import spacy
 from spacy.tokens import Doc
 import pandas as pd
 import param
@@ -36,29 +35,29 @@ class TextOperations(Operations):
     @staticmethod
     def text_equal(data_value: str, query_value: str, ignore_case: bool) -> bool:
         if ignore_case:
-            data_value = data_value.lower()
-            query_value = query_value.lower()
+            data_value = data_value.casefold()
+            query_value = query_value.casefold()
         return data_value == query_value
 
     @staticmethod
     def text_contains(data_value: str, query_value: str, ignore_case: bool) -> bool:
         if ignore_case:
-            data_value = data_value.lower()
-            query_value = query_value.lower()
+            data_value = data_value.casefold()
+            query_value = query_value.casefold()
         return query_value in data_value
 
     @staticmethod
     def starts_with(data_value: str, query_value: str, ignore_case: bool) -> bool:
         if ignore_case:
-            data_value = data_value.lower()
-            query_value = query_value.lower()
+            data_value = data_value.casefold()
+            query_value = query_value.casefold()
         return data_value.startswith(query_value)
 
     @staticmethod
     def ends_with(data_value: str, query_value: str, ignore_case: bool) -> bool:
         if ignore_case:
-            data_value = data_value.lower()
-            query_value = query_value.lower()
+            data_value = data_value.casefold()
+            query_value = query_value.casefold()
         return data_value.endswith(query_value)
 
     @staticmethod
@@ -78,7 +77,6 @@ class TextOperations(Operations):
 
     def __init__(self, data_series: Series, **params):
         super().__init__(data_series, **params)
-
 
     def __panel__(self):
         return pn.Row(self.param.operation, self.param.query_value, self.param.ignore_case)
@@ -169,23 +167,45 @@ class SpacyOperations(Operations):
     ignore_case = param.Boolean(per_instance=True)
     use_regex = param.Boolean(per_instance=True)
 
-    def __init__(self, nlp: spacy.Language, data_series: Series, **params):
+    attr_no_shows: set[str] = {"ancestors", "children", "cluster", "conjuncts", "dep", "doc", "ent_id",
+                               "ent_id_", "ent_iob", "ent_iob_", "ent_kb_id", "ent_kb_id_", "ent_type",
+                               "has_vector", "head", "i", "idx", "lang", "left_edge", "lefts", "lemma",
+                               "lex", "lex_id", "lower", "morph", "n_lefts", "n_rights", "norm", "norm_",
+                               "orth", "orth_", "pos", "prefix", "prob", "rank", "right_edge", "rights",
+                               "sent", "sent_start", "sentiment", "shape", "shape_", "subtree", "suffix",
+                               "tag", "tensor", "vector", "vector_norm", "vocab", "whitespace_"}
+    attr_renames: dict[str, str] = {"pos_": "part-of-speech", "tag_": "part-of-speech (fine-grained)",
+                                    "dep_": "dependency", "lemma_": "lemmatised text", "ent_type_": "entity type",
+                                    "lang_": "language", "lower_": "lowercase", "suffix_": "suffix",
+                                    "prefix_": "prefix", "text_with_ws": "text with whitespace"}
+
+    def __init__(self, data_series: Series, **params):
         super().__init__(data_series, **params)
-        self.nlp: spacy.Language = nlp
         self.attribute_values = pn.widgets.MultiChoice(align="end")
         self.param.attribute.objects = self._get_attr_list()
-        self.attribute = self.param.attribute.objects[0]
+        self.attribute = list(self.param.attribute.objects.values())[0]
 
     def __panel__(self):
         return pn.Row(self.param.attribute, "is one of", self.attribute_values, "and matches", self.param.search, pn.Column(self.param.ignore_case, self.param.use_regex))
 
-    def _get_attr_list(self) -> list[str]:
+    def _get_attr_list(self) -> dict[str, str]:
         if not len(self.data_series):
-            return []
+            return {}
         attr_set = set(self.data_series[0]._.attr_vals.keys())
-        custom_attr_set = set(self.data_series[0]._.custom_attr_vals.keys())
+        sorted_attr = sorted(attr_set.difference(self.attr_no_shows))
+        sorted_custom_attr = sorted(self.data_series[0]._.custom_attr_vals.keys())
 
-        return sorted(list(attr_set.union(custom_attr_set)))
+        attr_dict = {}
+        for attr in sorted_attr:
+            rename = self.attr_renames.get(attr)
+            if rename is not None:
+                attr_dict[rename] = attr
+            else:
+                attr_dict[attr] = attr
+        for attr in sorted_custom_attr:
+            attr_dict[attr] = attr
+
+        return attr_dict
 
     def _get_attr_values(self, attribute: str) -> dict[str, Any]:
         if not len(self.data_series):
