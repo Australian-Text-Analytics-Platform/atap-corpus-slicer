@@ -1,4 +1,3 @@
-import logging
 import operator
 import re
 from enum import Enum
