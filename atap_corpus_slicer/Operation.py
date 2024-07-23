@@ -36,49 +36,72 @@ class DefaultOperations(Operations):
 
 class TextOperations(Operations):
     @staticmethod
-    def text_contains(data_value: str, query_value: str, ignore_case: bool,
+    def text_contains(data_value: str, query_value: str, ignore_case: bool, use_regex: bool,
                       count_bound_fn: Callable, count_threshold: int) -> bool:
-        if ignore_case:
-            data_value = data_value.casefold()
-            query_value = query_value.casefold()
-        count = data_value.count(query_value)
+        if use_regex:
+            regex_flag: int = 0
+            if ignore_case:
+                regex_flag: int = re.I
+            count = len(re.findall(query_value, data_value, regex_flag))
+        else:
+            if ignore_case:
+                data_value = data_value.casefold()
+                query_value = query_value.casefold()
+            count = data_value.count(query_value)
 
         return count_bound_fn(count, count_threshold)
 
     @staticmethod
-    def text_equal(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        if ignore_case:
-            data_value = data_value.casefold()
-            query_value = query_value.casefold()
-        return data_value == query_value
+    def text_equal(data_value: str, query_value: str, ignore_case: bool, use_regex: bool) -> bool:
+        if use_regex:
+            regex_flag: int = 0
+            if ignore_case:
+                regex_flag = re.I
+            regex_match = re.fullmatch(query_value, data_value, regex_flag) is not None
+            return regex_match
+        else:
+            if ignore_case:
+                data_value = data_value.casefold()
+                query_value = query_value.casefold()
+            return data_value == query_value
 
     @staticmethod
-    def starts_with(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        if ignore_case:
-            data_value = data_value.casefold()
-            query_value = query_value.casefold()
-        return data_value.startswith(query_value)
+    def starts_with(data_value: str, query_value: str, ignore_case: bool, use_regex: bool) -> bool:
+        if use_regex:
+            regex_flag: int = 0
+            if ignore_case:
+                regex_flag: int = re.I
+            pattern = re.compile(r'^' + re.escape(query_value), flags=regex_flag)
+
+            return bool(pattern.search(data_value))
+        else:
+            if ignore_case:
+                data_value = data_value.casefold()
+                query_value = query_value.casefold()
+
+            return data_value.startswith(query_value)
 
     @staticmethod
-    def ends_with(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        if ignore_case:
-            data_value = data_value.casefold()
-            query_value = query_value.casefold()
-        return data_value.endswith(query_value)
+    def ends_with(data_value: str, query_value: str, ignore_case: bool, use_regex: bool) -> bool:
+        if use_regex:
+            regex_flag: int = 0
+            if ignore_case:
+                regex_flag: int = re.I
+            pattern = re.compile(re.escape(query_value) + r'$', flags=regex_flag)
 
-    @staticmethod
-    def regex_match(data_value: str, query_value: str, ignore_case: bool) -> bool:
-        flag = 0
-        if ignore_case:
-            flag = re.I
-        return re.search(query_value, data_value, flag) is not None
+            return bool(pattern.search(data_value))
+        else:
+            if ignore_case:
+                data_value = data_value.casefold()
+                query_value = query_value.casefold()
+
+            return data_value.endswith(query_value)
 
     def __init__(self, data_series: Series, **params):
         super().__init__(data_series, **params)
 
         operations_map: dict[str, Callable] = {"contains": self.text_contains, "equals": self.text_equal,
-                                               "starts with": self.starts_with, "ends with": self.ends_with,
-                                               "regular expression search": self.regex_match}
+                                               "starts with": self.starts_with, "ends with": self.ends_with}
         self.operation = pn.widgets.Select(name="Operation", options=operations_map)
         self.query_value = pn.widgets.TextInput(name="Search")
         self.count_bound_fn = pn.widgets.Select(options={"at least": operator.ge, "at most": operator.le},
@@ -86,8 +109,9 @@ class TextOperations(Operations):
         self.count_threshold = pn.widgets.IntInput(name="Occurrences", start=1, value=1,
                                                    align="end", visible=False, width=100)
         self.ignore_case = pn.widgets.Checkbox(name="Ignore case")
+        self.use_regex = pn.widgets.Checkbox(name="Regular expression")
 
-        self.panel.objects = [self.operation, self.query_value, self.count_bound_fn, self.count_threshold, self.ignore_case,
+        self.panel.objects = [self.operation, self.query_value, self.count_bound_fn, self.count_threshold, pn.Column(self.ignore_case, self.use_regex),
                               pn.bind(self.toggle_count_inputs, self.operation)]
 
     def toggle_count_inputs(self, *_):
@@ -99,8 +123,8 @@ class TextOperations(Operations):
         if isinstance(data_value, Doc):
             data_value = data_value.text_with_ws
         if self.operation.value == self.text_contains:
-            return self.operation.value(data_value, self.query_value.value_input, self.ignore_case.value, self.count_bound_fn.value, self.count_threshold.value)
-        return self.operation.value(data_value, self.query_value.value_input, self.ignore_case.value)
+            return self.operation.value(data_value, self.query_value.value_input, self.ignore_case.value, self.use_regex.value, self.count_bound_fn.value, self.count_threshold.value)
+        return self.operation.value(data_value, self.query_value.value_input, self.ignore_case.value, self.use_regex.value)
 
 
 class IntegerOperations(Operations):
