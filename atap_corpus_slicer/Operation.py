@@ -3,6 +3,8 @@ import re
 from enum import Enum
 from typing import Callable, Type, Any, Union
 
+from spacy import Language
+from spacy.matcher import PhraseMatcher
 from spacy.tokens import Doc
 import pandas as pd
 import panel as pn
@@ -192,18 +194,11 @@ class CategoryOperations(Operations):
         return bool(data_value in self.category.value)
 
 
-class SpacyOperations(Operations):
-    attr_no_shows: set[str] = {"ancestors", "children", "cluster", "conjuncts", "dep", "doc", "ent_id",
-                               "ent_id_", "ent_iob", "ent_iob_", "ent_kb_id", "ent_kb_id_", "ent_type",
-                               "has_vector", "head", "i", "idx", "lang", "left_edge", "lefts", "lemma",
-                               "lex", "lex_id", "lower", "morph", "n_lefts", "n_rights", "norm", "norm_",
-                               "orth", "orth_", "pos", "prefix", "prob", "rank", "right_edge", "rights",
-                               "sent", "sent_start", "sentiment", "shape", "shape_", "subtree", "suffix",
-                               "tag", "tensor", "vector", "vector_norm", "vocab", "whitespace_"}
+class SpacyTokenOperations(Operations):
     attr_renames: dict[str, str] = {"pos_": "part-of-speech", "tag_": "part-of-speech (fine-grained)",
                                     "dep_": "dependency", "lemma_": "lemmatised text", "ent_type_": "entity type",
                                     "lang_": "language", "lower_": "lowercase", "suffix_": "suffix",
-                                    "prefix_": "prefix", "text_with_ws": "text with whitespace"}
+                                    "prefix_": "prefix"}
 
     def __init__(self, data_series: Series, **params):
         super().__init__(data_series, **params)
@@ -221,7 +216,7 @@ class SpacyOperations(Operations):
         if not len(self.data_series):
             return {}
         attr_set = set(self.data_series[0]._.attr_vals.keys())
-        sorted_attr = sorted(attr_set.difference(self.attr_no_shows))
+        sorted_attr = sorted(attr_set)
         sorted_custom_attr = sorted(self.data_series[0]._.custom_attr_vals.keys())
 
         attr_dict = {}
@@ -229,8 +224,6 @@ class SpacyOperations(Operations):
             rename = self.attr_renames.get(attr)
             if rename is not None:
                 attr_dict[rename] = attr
-            else:
-                attr_dict[attr] = attr
         for attr in sorted_custom_attr:
             attr_dict[attr] = attr
 
@@ -280,6 +273,48 @@ class SpacyOperations(Operations):
             if text_match and (attribute_match or custom_attribute_match):
                 return True
         return False
+
+
+class SpacyPhraseOperations(Operations):
+    attr_renames: dict[str, str] = {"pos": "part-of-speech", "tag": "part-of-speech (fine-grained)",
+                                    "dep": "dependency", "lemma": "lemmatised text", "ent_type": "entity type",
+                                    "lower": "lowercase", "suffix": "suffix", "prefix": "prefix", "shape": "shape"}
+
+    def __init__(self, data_series: Series, model: Language, **params):
+        super().__init__(data_series, **params)
+        self.model: Language = model
+        self.attribute = pn.widgets.Select(name="Attribute", options=self._get_attr_list())
+        self.search = pn.widgets.TextInput(name="matches")
+        self.search.param.watch(self._set_search_doc, 'value')
+        self.search_doc: Doc = self.model(self.search.value)
+
+        self.panel.objects = [self.attribute, self.search]
+
+    def _get_attr_list(self) -> dict[str, str]:
+        if not len(self.data_series):
+            return {}
+        attr_set = set(self.data_series[0]._.attr_vals.keys())
+        sorted_attr = sorted(attr_set)
+        sorted_custom_attr = sorted(self.data_series[0]._.custom_attr_vals.keys())
+
+        attr_dict = {}
+        for attr in sorted_attr:
+            rename = self.attr_renames.get(attr)
+            if rename is not None:
+                attr_dict[rename] = attr
+        for attr in sorted_custom_attr:
+            attr_dict[attr] = attr
+
+        return attr_dict
+
+    def _set_search_doc(self, *_):
+        self.search_doc = self.model(self.search.value)
+
+    def call_operation(self, data_value: Doc) -> bool:
+        matcher: PhraseMatcher = PhraseMatcher(self.model.vocab, self.attribute.value)
+        matcher.add('pattern', [self.search_doc])
+
+        return len(matcher(data_value)) != 0
 
 
 class DataType(Enum):

@@ -2,10 +2,11 @@ import logging
 import traceback
 from logging.handlers import RotatingFileHandler
 from os.path import join, dirname, abspath
-from typing import Callable, Any, Type
+from typing import Callable, Any, Type, Optional, Union
 
 import panel as pn
 import param
+import spacy
 from atap_corpus.corpus.base import BaseCorpora
 from atap_corpus.corpus.corpus import DataFrameCorpus
 from pandas import DataFrame, Series
@@ -15,11 +16,12 @@ from panel.theme import Fast
 
 from atap_corpus_loader import CorpusLoader, EventType
 from panel.widgets import Tqdm, Button, TextInput
+from spacy import Language
 from spacy.tokens import Doc
 from tqdm import tqdm
 
-from atap_corpus_slicer.Operation import DefaultOperations, SpacyOperations, DATATYPE_OPERATIONS_MAP, Operations, \
-    DataType, TextOperations
+from atap_corpus_slicer.Operation import DefaultOperations, SpacyTokenOperations, DATATYPE_OPERATIONS_MAP, Operations, \
+    DataType, TextOperations, SpacyPhraseOperations
 
 pn.extension(notifications=True, design=Fast)
 tqdm.pandas()
@@ -29,10 +31,12 @@ class FilterParams(param.Parameterized):
     negation = param.Boolean(label='Negate', default=False, instantiate=True)
     selected_label = param.Selector(label='Data label', instantiate=True)
 
-    def __init__(self, selected_corpus: DataFrameCorpus, spacy_filter: bool = False, **params):
+    def __init__(self, selected_corpus: DataFrameCorpus, filter_type: str = "simple", model: Optional[Language] = None, **params):
         super().__init__(**params)
+        self.model: Optional[Language] = model
         self.selected_operations = DefaultOperations(Series())
-        self.spacy_filter: bool = spacy_filter and selected_corpus.uses_spacy()
+        self.filter_type: str = filter_type
+        self.spacy_filter: bool = (filter_type != "simple") and selected_corpus.uses_spacy()
 
         self.remove_filter_button = Button(
             name="Remove",
@@ -50,6 +54,7 @@ class FilterParams(param.Parameterized):
     def _update_panel(self):
         objects = []
         if not self.spacy_filter:
+            # Label selector is unnecessary for spacy filters as they only operate on the document data
             objects.append(self.param.selected_label)
         objects.extend([self.selected_operations, self.param.negation, self.remove_filter_button])
         self.panel.objects = objects
@@ -73,12 +78,15 @@ class FilterParams(param.Parameterized):
             return
         df: DataFrame = self.selected_corpus.to_dataframe()
         selected_data_series: Series = df[self.selected_label]
-        if self.spacy_filter:
-            self.selected_operations = SpacyOperations(selected_data_series)
+        if self.filter_type == "spacy_token":
+            self.selected_operations = SpacyTokenOperations(selected_data_series)
+            self._update_panel()
+            return
+        elif self.filter_type == "spacy_phrase":
+            self.selected_operations = SpacyPhraseOperations(selected_data_series, self.model)
             self._update_panel()
             return
         elif self.selected_corpus.uses_spacy() and (self.selected_label == self.selected_corpus._COL_DOC):
-            self.selected_operations = TextOperations(selected_data_series)
             self.selected_operations = TextOperations(selected_data_series)
             self._update_panel()
             return
@@ -103,8 +111,10 @@ class FilterParams(param.Parameterized):
 class CorpusSlicerParams(param.Parameterized):
     selected_corpus = param.Selector(default=None)
 
-    def __init__(self, **params):
+    def __init__(self, model: Optional[Language], **params):
         super().__init__(**params)
+        self.model: Optional[Language] = model
+
         self.filters: list = []
 
         self.add_filter_button = Button(
@@ -114,15 +124,23 @@ class CorpusSlicerParams(param.Parameterized):
             align='end'
         )
         self.add_filter_button.on_click(self.add_filter)
-        self.add_advanced_filter_button = Button(
-            name="Add advanced filter",
+        self.add_spacy_token_filter_button = Button(
+            name="Add token filter",
             button_type="primary", button_style="solid",
             visible=False,
             align='end'
         )
-        self.add_advanced_filter_button.on_click(lambda e: self.add_filter(e, True))
+        self.add_spacy_token_filter_button.on_click(lambda e: self.add_filter(e, filter_type="spacy_token"))
+        self.add_spacy_phrase_filter_button = Button(
+            name="Add phrase filter",
+            button_type="primary", button_style="solid",
+            visible=False,
+            align='end'
+        )
+        self.add_spacy_phrase_filter_button.on_click(lambda e: self.add_filter(e, filter_type="spacy_phrase", model=self.model))
 
-        self.control_row = Row(self.param.selected_corpus, self.add_filter_button, self.add_advanced_filter_button)
+        self.control_row = Row(self.param.selected_corpus, self.add_filter_button,
+                               self.add_spacy_token_filter_button, self.add_spacy_phrase_filter_button)
         self.panel = Column(self.control_row)
 
     def __panel__(self):
@@ -131,8 +149,8 @@ class CorpusSlicerParams(param.Parameterized):
     def reset_filters(self):
         self.on_corpus_update()
 
-    def add_filter(self, event=None, advanced: bool = False):
-        new_filter_param = FilterParams(self.selected_corpus, spacy_filter=advanced)
+    def add_filter(self, event=None, filter_type: str = "simple", model: Optional[Language] = None):
+        new_filter_param = FilterParams(self.selected_corpus, filter_type=filter_type, model=model)
         self.filters.append(new_filter_param)
 
         new_filter_param.remove_filter_button.on_click(lambda *_, filter_param=new_filter_param, r=new_filter_param.__panel__(): self.remove_filter_row(filter_param, r))
@@ -150,15 +168,16 @@ class CorpusSlicerParams(param.Parameterized):
     def on_corpus_update(self):
         if self.selected_corpus is not None:
             self.add_filter_button.visible = True
-            self.add_advanced_filter_button.visible = self.selected_corpus.uses_spacy()
-            advanced: bool = True
+            self.add_spacy_token_filter_button.visible = self.selected_corpus.uses_spacy()
+            self.add_spacy_phrase_filter_button.visible = self.selected_corpus.uses_spacy()
         else:
-            self.add_advanced_filter_button.visible = False
-            advanced: bool = False
+            self.add_filter_button.visible = False
+            self.add_spacy_token_filter_button.visible = False
+            self.add_spacy_phrase_filter_button.visible = False
         self.filters = []
         self.panel.objects = []
         self.panel.objects = [self.control_row]
-        self.add_filter(advanced=advanced)
+        self.add_filter()
 
 
 class SpacyLabeller:
@@ -248,15 +267,24 @@ class CorpusSlicer(pn.viewable.Viewer):
 
     def __init__(self,
                  root_directory: str = './',
+                 model: Optional[Union[str, Language]] = None,
                  run_logger: bool = False,
                  **params):
         super().__init__(**params)
 
         CorpusSlicer.setup_logger(CorpusSlicer.LOGGER_NAME, run_logger)
 
+        self.model: Optional[Language]
+        if (model is None) or isinstance(model, Language):
+            self.model = model
+        elif isinstance(model, str):
+            self.model = spacy.load(model)
+        else:
+            raise TypeError(f"Expected model argument to be either a spacy Language or a string. Instead got {type(model)}")
+
         self.progress_bar = Tqdm(visible=False)
         self.progress_bar.pandas()
-        self.slicer_params = CorpusSlicerParams()
+        self.slicer_params = CorpusSlicerParams(self.model)
 
         self.slice_corpus_button = Button(
             name="Slice",
@@ -279,6 +307,8 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.corpus_loader: CorpusLoader = CorpusLoader(root_directory, run_logger=run_logger)
         self.corpora = self.corpus_loader.get_mutable_corpora()
 
+        if self.model is not None:
+            self.corpus_loader.register_event_callback(EventType.BUILD, self.corpus_run_spacy)
         self.corpus_loader.register_event_callback(EventType.BUILD, self.on_corpora_update)
         self.corpus_loader.register_event_callback(EventType.RENAME, self.on_corpora_update)
         self.corpus_loader.register_event_callback(EventType.DELETE, self.on_corpora_update)
@@ -301,6 +331,11 @@ class CorpusSlicer(pn.viewable.Viewer):
     def display_success(self, success_msg: str):
         self.log(f"Success displayed: {success_msg}", logging.DEBUG)
         pn.state.notifications.success(success_msg, duration=3000)
+
+    def corpus_run_spacy(self, corpus):
+        self.progress_bar.visible = True
+        corpus.run_spacy(self.model)
+        self.progress_bar.visible = False
 
     def set_corpus_selector_value(self, corpus_dict: dict[str, DataFrameCorpus]):
         formatted_dict: dict[str, DataFrameCorpus] = {}
