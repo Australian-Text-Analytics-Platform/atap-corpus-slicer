@@ -234,6 +234,9 @@ class SpacyLabeller:
 
 
 class CorpusSlicer(pn.viewable.Viewer):
+    """
+    A GUI tool for applying filters to a corpus based on its data and metadata
+    """
     LOGGER_NAME: str = "corpus-slicer"
 
     @staticmethod
@@ -270,6 +273,17 @@ class CorpusSlicer(pn.viewable.Viewer):
                  model: Optional[Union[str, Language]] = None,
                  run_logger: bool = False,
                  **params):
+        """
+        CorpusSlicer constructor
+        :param root_directory: The root directory that the corpus loader will search for files to load. The argument must be a string. The directory may be non-existent at initialisation time, but no files will be displayed until it exists. './' by default.
+        :type root_directory: str
+        :param model: The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. None by default.
+        :type model: Optional[Union[str, Language]]
+        :param run_logger: If True, a log file will be written to. False by default.
+        :type run_logger: bool
+        :param params: Additional parameters that are passed to the Viewer super class
+        :type params: Any
+        """
         super().__init__(**params)
 
         CorpusSlicer.setup_logger(CorpusSlicer.LOGGER_NAME, run_logger)
