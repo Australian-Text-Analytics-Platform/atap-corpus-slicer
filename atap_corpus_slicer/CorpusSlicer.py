@@ -270,17 +270,20 @@ class CorpusSlicer(pn.viewable.Viewer):
 
     def __init__(self,
                  root_directory: str = './',
-                 model: Optional[Union[str, Language]] = None,
+                 include_meta_loader: bool = False,
                  run_logger: bool = False,
+                 model: Optional[Union[str, Language]] = None,
                  **params):
         """
         CorpusSlicer constructor
         :param root_directory: The root directory that the corpus loader will search for files to load. The argument must be a string. The directory may be non-existent at initialisation time, but no files will be displayed until it exists. './' by default.
         :type root_directory: str
-        :param model: The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. None by default.
-        :type model: Optional[Union[str, Language]]
+        :param include_meta_loader: If True, the CorpusLoader will include additional metadata joining functionality. False by default.
+        :type include_meta_loader: bool
         :param run_logger: If True, a log file will be written to. False by default.
         :type run_logger: bool
+        :param model: The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. None by default.
+        :type model: Optional[Union[str, Language]]
         :param params: Additional parameters that are passed to the Viewer super class
         :type params: Any
         """
@@ -318,7 +321,7 @@ class CorpusSlicer(pn.viewable.Viewer):
                                                    self.sliced_name_field),
                                                height=500))
 
-        self.corpus_loader: CorpusLoader = CorpusLoader(root_directory, run_logger=run_logger)
+        self.corpus_loader: CorpusLoader = CorpusLoader(root_directory, include_meta_loader=include_meta_loader, run_logger=run_logger)
         self.corpora = self.corpus_loader.get_mutable_corpora()
 
         if self.model is not None:

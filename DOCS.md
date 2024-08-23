@@ -22,8 +22,9 @@ CorpusSlicer constructor
 
 Params
 - root_directory: str - The root directory that the corpus loader will search for files to load. The argument must be a string. The directory may be non-existent at initialisation time, but no files will be displayed until it exists. './' by default.
-- model: Optional[Union[str, Language]] - The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. None by default.
+- include_meta_loader: bool - If True, the CorpusLoader will include additional metadata joining functionality. False by default.
 - run_logger: bool - If True, a log file will be written to. False by default.
+- model: Optional[Union[str, Language]] - The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. None by default.
 - params: Any - Additional parameters that are passed to the Viewer super class
 
 Example
