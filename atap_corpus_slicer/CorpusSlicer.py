@@ -282,7 +282,7 @@ class CorpusSlicer(pn.viewable.Viewer):
         :type include_meta_loader: bool
         :param run_logger: If True, a log file will be written to. False by default.
         :type run_logger: bool
-        :param model: The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. None by default.
+        :param model: The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. If the model argument is a string, then a download of the model through spaCy will be attempted (if not already installed) before loading it as a pipeline. None by default.
         :type model: Optional[Union[str, Language]]
         :param params: Additional parameters that are passed to the Viewer super class
         :type params: Any
@@ -295,7 +295,11 @@ class CorpusSlicer(pn.viewable.Viewer):
         if (model is None) or isinstance(model, Language):
             self.model = model
         elif isinstance(model, str):
-            self.model = spacy.load(model)
+            try:
+                self.model = spacy.load(model)
+            except OSError:
+                spacy.cli.download(model)
+                self.model = spacy.load(model)
         else:
             raise TypeError(f"Expected model argument to be either a spacy Language or a string. Instead got {type(model)}")
 
