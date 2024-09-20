@@ -21,17 +21,16 @@ from atap_corpus_slicer import CorpusSlicer
 CorpusSlicer constructor
 
 Params
-- root_directory: str - The root directory that the corpus loader will search for files to load. The argument must be a string. The directory may be non-existent at initialisation time, but no files will be displayed until it exists. './' by default.
-- include_meta_loader: bool - If True, the CorpusLoader will include additional metadata joining functionality. False by default.
+- corpus_loader: Optional\[CorpusLoader\] - The CorpusLoader that the slicer will be attached to. If None, a default CorpusLoader will be created with no optional features. None by Default.
 - run_logger: bool - If True, a log file will be written to. False by default.
-- model: Optional[Union[str, Language]] - The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. If the model argument is a string, then a download of the model through spaCy will be attempted (if not already installed) before loading it as a pipeline. None by default.
+- model: Optional\[Union\[str, Language\]\] - The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. If the model argument is a string, then a download of the model through spaCy will be attempted (if not already installed) before loading it as a pipeline. None by default.
 - params: Any - Additional parameters that are passed to the Viewer super class
 
 Example
 
 ```python
 nlp = spacy.load('en_core_web_sm')
-slicer = CorpusSlicer(root_directory="./corpus_data", run_logger=True, model=nlp)
+slicer = CorpusSlicer(run_logger=True, model=nlp)
 ```
 
 ---
@@ -88,9 +87,11 @@ The following snippet could be used as a cell in a Jupyter notebook. Each time t
 ```python
 import spacy
 from atap_corpus_slicer import CorpusSlicer
+from atap_corpus_loader import CorpusLoader
 
 nlp = spacy.load('en_core_web_sm')
-corpus_slicer: CorpusSlicer = CorpusSlicer(root_directory="./corpus_data", run_logger=True, model=nlp)
+loader = CorpusLoader(root_directory='./corpus_data')
+corpus_slicer: CorpusSlicer = CorpusSlicer(corpus_loader=loader, run_logger=True, model=nlp)
 corpus_slicer.servable()
 ```
 
