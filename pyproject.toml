@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "atap-corpus-slicer"
-version = "0.2.2"
+version = "0.3.0"
 description = "A GUI corpus filter built with the Panel library."
 authors = ["Hamish Croser <hamish.croser@sydney.edu.au>"]
 readme = "README.md"
@@ -18,6 +18,7 @@ pandas = "~=2.0"
 panel = "~=1.4"
 numpy = "<2.0"
 spacy = ">3.0,<3.9"
+tqdm = "*"
 
 [tool.poetry.group.dev]
 optional = true
