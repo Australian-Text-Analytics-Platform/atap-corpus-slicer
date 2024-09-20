@@ -160,7 +160,7 @@ class FloatOperations(Operations):
 class BooleanOperations(Operations):
     def __init__(self, data_series: Series, **params):
         super().__init__(data_series, **params)
-        self.query_value = pn.widgets.Select(name="is equal to", objects=[True, False])
+        self.query_value = pn.widgets.Select(name="is equal to", options=[True, False])
 
         self.panel.objects = [self.query_value]
 
