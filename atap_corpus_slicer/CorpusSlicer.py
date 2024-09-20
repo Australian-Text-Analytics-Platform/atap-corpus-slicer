@@ -269,17 +269,14 @@ class CorpusSlicer(pn.viewable.Viewer):
         logger.log(level, msg)
 
     def __init__(self,
-                 root_directory: str = './',
-                 include_meta_loader: bool = False,
+                 corpus_loader: Optional[CorpusLoader] = None,
                  run_logger: bool = False,
                  model: Optional[Union[str, Language]] = None,
                  **params):
         """
         CorpusSlicer constructor
-        :param root_directory: The root directory that the corpus loader will search for files to load. The argument must be a string. The directory may be non-existent at initialisation time, but no files will be displayed until it exists. './' by default.
-        :type root_directory: str
-        :param include_meta_loader: If True, the CorpusLoader will include additional metadata joining functionality. False by default.
-        :type include_meta_loader: bool
+        :param corpus_loader: The CorpusLoader that the slicer will be attached to. If None, a default CorpusLoader will be created with no optional features. None by Default.
+        :type corpus_loader: Optional[CorpusLoader]
         :param run_logger: If True, a log file will be written to. False by default.
         :type run_logger: bool
         :param model: The spaCy Language or name of the Language that will be used to create a spaCy corpus. If the model argument is not None, the corpus will be converted to a spaCy corpus after being built. If the model argument is a string, then a download of the model through spaCy will be attempted (if not already installed) before loading it as a pipeline. None by default.
@@ -304,7 +301,6 @@ class CorpusSlicer(pn.viewable.Viewer):
             raise TypeError(f"Expected model argument to be either a spacy Language or a string. Instead got {type(model)}")
 
         self.progress_bar = Tqdm(visible=False)
-        self.progress_bar.pandas()
         self.slicer_params = CorpusSlicerParams(self.model)
 
         self.slice_corpus_button = Button(
@@ -325,7 +321,10 @@ class CorpusSlicer(pn.viewable.Viewer):
                                                    self.sliced_name_field),
                                                height=500))
 
-        self.corpus_loader: CorpusLoader = CorpusLoader(root_directory, include_meta_loader=include_meta_loader, run_logger=run_logger)
+        if corpus_loader:
+            self.corpus_loader: CorpusLoader = corpus_loader
+        else:
+            self.corpus_loader: CorpusLoader = CorpusLoader(root_directory='.', run_logger=run_logger)
         self.corpora = self.corpus_loader.get_mutable_corpora()
 
         if self.model is not None:
@@ -354,9 +353,22 @@ class CorpusSlicer(pn.viewable.Viewer):
         pn.state.notifications.success(success_msg, duration=3000)
 
     def corpus_run_spacy(self, corpus):
-        self.progress_bar.visible = True
-        corpus.run_spacy(self.model)
-        self.progress_bar.visible = False
+        # This method would ideally simply call corpus.run_spacy(self.model),
+        # but in order to display the progress bar correctly the method must be recreated here.
+        try:
+            if corpus.uses_spacy():
+                return
+            run_spacy_on: DataFrameCorpus = corpus.find_root()
+            docs = (d for d in run_spacy_on.docs())
+
+            progress_bar = self.corpus_loader.controller.get_build_progress_bar()
+            docs_ls = []
+            for doc in progress_bar(self.model.pipe(docs), total=len(run_spacy_on), desc="Processing with NLP model", unit="files", leave=True):
+                docs_ls.append(doc)
+            run_spacy_on._df[run_spacy_on._COL_DOC] = Series(docs_ls)
+        except Exception as e:
+            self.log(traceback.format_exc(), logging.ERROR)
+            self.display_error(f"Error processing files: {e}")
 
     def set_corpus_selector_value(self, corpus_dict: dict[str, DataFrameCorpus]):
         formatted_dict: dict[str, DataFrameCorpus] = {}
