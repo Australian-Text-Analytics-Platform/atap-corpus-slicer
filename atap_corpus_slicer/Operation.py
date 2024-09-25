@@ -8,7 +8,7 @@ from spacy.matcher import PhraseMatcher
 from spacy.tokens import Doc
 import pandas as pd
 import panel as pn
-from pandas import Series
+from pandas import Series, isna
 
 pn.extension()
 
@@ -33,6 +33,8 @@ class DefaultOperations(Operations):
         self.panel.objects = ["is equal to", self.query_value]
 
     def call_operation(self, data_value: Any) -> bool:
+        if isna(data_value) or isna(self.query_value.value_input):
+            return False
         return str(data_value) == self.query_value.value_input
 
 
@@ -122,6 +124,8 @@ class TextOperations(Operations):
         self.count_threshold.visible = count_op
 
     def call_operation(self, data_value: Union[str, Doc]) -> bool:
+        if isna(data_value) or isna(self.query_value.value_input):
+            return False
         if isinstance(data_value, Doc):
             data_value = data_value.text_with_ws
         if self.operation.value == self.text_contains:
@@ -140,7 +144,11 @@ class IntegerOperations(Operations):
         self.panel.objects = [self.data_range]
 
     def call_operation(self, data_value: int) -> bool:
-        return self.data_range.value[0] <= data_value <= self.data_range.value[1]
+        range_start = self.data_range.value[0]
+        range_end = self.data_range.value[1]
+        if isna(data_value) or isna(range_start) or isna(range_end):
+            return False
+        return bool(range_start <= data_value <= range_end)
 
 
 class FloatOperations(Operations):
@@ -154,7 +162,11 @@ class FloatOperations(Operations):
         self.panel.objects = [self.data_range]
 
     def call_operation(self, data_value: float) -> bool:
-        return self.data_range.value[0] <= data_value <= self.data_range.value[1]
+        range_start = self.data_range.value[0]
+        range_end = self.data_range.value[1]
+        if isna(data_value) or isna(range_start) or isna(range_end):
+            return False
+        return bool(range_start <= data_value <= range_end)
 
 
 class BooleanOperations(Operations):
@@ -165,7 +177,9 @@ class BooleanOperations(Operations):
         self.panel.objects = [self.query_value]
 
     def call_operation(self, data_value: bool) -> bool:
-        return data_value == self.query_value.value
+        if isna(data_value) or isna(self.query_value.value):
+            return False
+        return bool(data_value == self.query_value.value)
 
 
 class DateOperations(Operations):
@@ -179,6 +193,10 @@ class DateOperations(Operations):
         self.panel.objects = [self.date_range]
 
     def call_operation(self, data_value: pd.Timestamp) -> bool:
+        range_start = self.date_range.value[0]
+        range_end = self.date_range.value[1]
+        if isna(data_value) or isna(range_start) or isna(range_end):
+            return False
         data_value = data_value.to_pydatetime()
         return self.date_range.value[0] <= data_value <= self.date_range.value[1]
 
@@ -191,6 +209,8 @@ class CategoryOperations(Operations):
         self.panel.objects = [self.category]
 
     def call_operation(self, data_value: Any) -> bool:
+        if isna(data_value) or isna(self.category.value):
+            return False
         return bool(data_value in self.category.value)
 
 
@@ -251,6 +271,8 @@ class SpacyTokenOperations(Operations):
         self.attribute_values.value = []
 
     def call_operation(self, data_value: Doc) -> bool:
+        if isna(data_value) or isna(self.attribute_values.value):
+            return False
         if len(self.attribute_values.value) == 0:
             return True
         regex_flag = 0
@@ -311,6 +333,8 @@ class SpacyPhraseOperations(Operations):
         self.search_doc = self.model(self.search.value)
 
     def call_operation(self, data_value: Doc) -> bool:
+        if isna(data_value) or isna(self.attribute.value):
+            return False
         matcher: PhraseMatcher = PhraseMatcher(self.model.vocab, self.attribute.value)
         matcher.add('pattern', [self.search_doc])
 
