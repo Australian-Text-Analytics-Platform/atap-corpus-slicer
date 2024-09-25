@@ -363,7 +363,8 @@ class CorpusSlicer(pn.viewable.Viewer):
 
             progress_bar = self.corpus_loader.controller.get_build_progress_bar()
             docs_ls = []
-            for doc in progress_bar(self.model.pipe(docs), total=len(run_spacy_on), desc="Processing with NLP model", unit="files", leave=True):
+            for text in progress_bar(docs, total=len(run_spacy_on), desc="Processing with NLP model", unit="files", leave=True):
+                doc = self.model(text)
                 docs_ls.append(doc)
             run_spacy_on._df[run_spacy_on._COL_DOC] = Series(docs_ls)
         except Exception as e:
