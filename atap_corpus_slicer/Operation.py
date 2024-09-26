@@ -215,13 +215,9 @@ class CategoryOperations(Operations):
 
 
 class SpacyTokenOperations(Operations):
-    attr_renames: dict[str, str] = {"pos_": "part-of-speech", "tag_": "part-of-speech (fine-grained)",
-                                    "dep_": "dependency", "lemma_": "lemmatised text", "ent_type_": "entity type",
-                                    "lang_": "language", "lower_": "lowercase", "suffix_": "suffix",
-                                    "prefix_": "prefix"}
-
-    def __init__(self, data_series: Series, **params):
+    def __init__(self, data_series: Series, attr_renames: dict[str, str], **params):
         super().__init__(data_series, **params)
+        self.attr_renames: dict[str, str] = attr_renames
         self.attribute = pn.widgets.Select(name="Attribute", options=self._get_attr_list())
         self.attribute_values = pn.widgets.MultiChoice(name="is one of", align="end")
         self.search = pn.widgets.TextInput(name="matches")
@@ -237,28 +233,23 @@ class SpacyTokenOperations(Operations):
             return {}
         attr_set = set(self.data_series[0]._.attr_vals.keys())
         sorted_attr = sorted(attr_set)
-        sorted_custom_attr = sorted(self.data_series[0]._.custom_attr_vals.keys())
 
         attr_dict = {}
         for attr in sorted_attr:
             rename = self.attr_renames.get(attr)
             if rename is not None:
                 attr_dict[rename] = attr
-        for attr in sorted_custom_attr:
-            attr_dict[attr] = attr
 
         return attr_dict
 
     def _get_attr_values(self, attribute: str) -> dict[str, Any]:
-        if (not len(self.data_series)) or (not Doc.has_extension("attr_vals")) or (not Doc.has_extension("custom_attr_vals")):
+        if (not len(self.data_series)) or (not Doc.has_extension("attr_vals")):
             return {}
 
         attr_vals: set = set()
         doc_attr_vals: set[str]
         for doc in self.data_series:
             doc_attr_vals = doc._.attr_vals.get(attribute)
-            if doc_attr_vals is None:
-                doc_attr_vals = doc._.custom_attr_vals.get(attribute)
             if doc_attr_vals is None:
                 continue
             attr_vals.update(doc_attr_vals)
@@ -298,13 +289,10 @@ class SpacyTokenOperations(Operations):
 
 
 class SpacyPhraseOperations(Operations):
-    attr_renames: dict[str, str] = {"pos": "part-of-speech", "tag": "part-of-speech (fine-grained)",
-                                    "dep": "dependency", "lemma": "lemmatised text", "ent_type": "entity type",
-                                    "lower": "lowercase", "suffix": "suffix", "prefix": "prefix", "shape": "shape"}
-
-    def __init__(self, data_series: Series, model: Language, **params):
+    def __init__(self, data_series: Series, model: Language, attr_renames: dict[str, str], **params):
         super().__init__(data_series, **params)
         self.model: Language = model
+        self.attr_renames: dict[str, str] = attr_renames
         self.attribute = pn.widgets.Select(name="Attribute", options=self._get_attr_list())
         self.search = pn.widgets.TextInput(name="matches")
         self.search.param.watch(self._set_search_doc, 'value')
@@ -317,15 +305,12 @@ class SpacyPhraseOperations(Operations):
             return {}
         attr_set = set(self.data_series[0]._.attr_vals.keys())
         sorted_attr = sorted(attr_set)
-        sorted_custom_attr = sorted(self.data_series[0]._.custom_attr_vals.keys())
 
         attr_dict = {}
         for attr in sorted_attr:
             rename = self.attr_renames.get(attr)
             if rename is not None:
                 attr_dict[rename] = attr
-        for attr in sorted_custom_attr:
-            attr_dict[attr] = attr
 
         return attr_dict
 
@@ -335,7 +320,8 @@ class SpacyPhraseOperations(Operations):
     def call_operation(self, data_value: Doc) -> bool:
         if isna(data_value) or isna(self.attribute.value):
             return False
-        matcher: PhraseMatcher = PhraseMatcher(self.model.vocab, self.attribute.value)
+        numeric_attr: str = self.attribute.value.lower().rstrip('_')
+        matcher: PhraseMatcher = PhraseMatcher(self.model.vocab, numeric_attr)
         matcher.add('pattern', [self.search_doc])
 
         return len(matcher(data_value)) != 0
