@@ -208,10 +208,17 @@ class SpacyLabeller:
         possible_attributes: set[str] = set(SPACY_ATTRIBUTES.keys())
 
         attribute_values: dict[str, set[str]] = {}
-        for attr in dir(doc[0]):
-            is_method = callable(getattr(doc[0], attr))
-            if (not is_method) and (attr in possible_attributes):
-                attribute_values[attr] = set()
+        first_tok = doc[0]
+        for attr_name in dir(first_tok):
+            if attr_name not in possible_attributes:
+                continue
+            try:
+                attr_obj = getattr(first_tok, attr_name)
+            except (ValueError, AttributeError):
+                continue
+            is_method = callable(attr_obj)
+            if not is_method:
+                attribute_values[attr_name] = set()
 
         for tok in doc:
             for attr in attribute_values.keys():
