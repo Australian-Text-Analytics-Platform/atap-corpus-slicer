@@ -26,6 +26,11 @@ from atap_corpus_slicer.Operation import DefaultOperations, SpacyTokenOperations
 pn.extension(notifications=True, design=Fast)
 tqdm.pandas()
 
+SPACY_ATTRIBUTES: dict[str, str] = {"pos_": "part-of-speech", "tag_": "part-of-speech (fine-grained)",
+                                    "dep_": "dependency", "lemma_": "lemmatised text", "ent_type_": "entity type",
+                                    "lower_": "lowercase", "suffix_": "suffix", "prefix_": "prefix", "shape_": "shape",
+                                    "like_email": "like email", "like_num": "like number", "like_url": "like url"}
+
 
 class FilterParams(param.Parameterized):
     negation = param.Boolean(label='Negate', default=False, instantiate=True)
@@ -79,11 +84,11 @@ class FilterParams(param.Parameterized):
         df: DataFrame = self.selected_corpus.to_dataframe()
         selected_data_series: Series = df[self.selected_label]
         if self.filter_type == "spacy_token":
-            self.selected_operations = SpacyTokenOperations(selected_data_series)
+            self.selected_operations = SpacyTokenOperations(selected_data_series, SPACY_ATTRIBUTES)
             self._update_panel()
             return
         elif self.filter_type == "spacy_phrase":
-            self.selected_operations = SpacyPhraseOperations(selected_data_series, self.model)
+            self.selected_operations = SpacyPhraseOperations(selected_data_series, self.model, SPACY_ATTRIBUTES)
             self._update_panel()
             return
         elif self.selected_corpus.uses_spacy() and (self.selected_label == self.selected_corpus._COL_DOC):
@@ -193,26 +198,20 @@ class SpacyLabeller:
     def add_extensions():
         if not Doc.has_extension("attr_vals"):
             Doc.set_extension("attr_vals", default=None)
-        if not Doc.has_extension("custom_attr_vals"):
-            Doc.set_extension("custom_attr_vals", default=None)
 
     @staticmethod
     def gather_attributes(doc: Doc):
         if not len(doc):
             doc._.attr_vals = {}
-            doc._.custom_attr_vals = {}
             return doc
+
+        possible_attributes: set[str] = set(SPACY_ATTRIBUTES.keys())
 
         attribute_values: dict[str, set[str]] = {}
         for attr in dir(doc[0]):
             is_method = callable(getattr(doc[0], attr))
-            if (not attr.startswith('_')) and (not is_method):
+            if (not is_method) and (attr in possible_attributes):
                 attribute_values[attr] = set()
-        custom_attribute_values: dict[str, set[str]] = {}
-        for custom_attr in dir(doc[0]._):
-            is_method = callable(getattr(doc[0]._, custom_attr))
-            if not is_method:
-                custom_attribute_values[custom_attr] = set()
 
         for tok in doc:
             for attr in attribute_values.keys():
@@ -221,15 +220,8 @@ class SpacyLabeller:
                     attribute_values[attr].add(value)
                 except TypeError:
                     pass
-            for attr in custom_attribute_values.keys():
-                value = getattr(tok._, attr)
-                try:
-                    custom_attribute_values[attr].add(value)
-                except TypeError:
-                    pass
 
         doc._.attr_vals = attribute_values
-        doc._.custom_attr_vals = custom_attribute_values
         return doc
 
 
