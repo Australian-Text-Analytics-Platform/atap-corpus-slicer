@@ -209,7 +209,7 @@ class CategoryOperations(Operations):
         self.panel.objects = [self.category]
 
     def call_operation(self, data_value: Any) -> bool:
-        if isna(data_value) or isna(self.category.value):
+        if isna(data_value):
             return False
         return bool(data_value in self.category.value)
 
@@ -262,7 +262,7 @@ class SpacyTokenOperations(Operations):
         self.attribute_values.value = []
 
     def call_operation(self, data_value: Doc) -> bool:
-        if isna(data_value) or isna(self.attribute_values.value):
+        if isna(data_value):
             return False
         if len(self.attribute_values.value) == 0:
             return True

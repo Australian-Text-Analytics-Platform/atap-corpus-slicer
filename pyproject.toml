@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "atap-corpus-slicer"
-version = "0.3.4"
+version = "0.3.5"
 description = "A GUI corpus filter built with the Panel library."
 authors = ["Hamish Croser <hamish.croser@sydney.edu.au>"]
 readme = "README.md"
