@@ -14,7 +14,7 @@ from panel import Row, Column
 
 from panel.theme import Fast
 
-from atap_corpus_loader import CorpusLoader, EventType
+from atap_corpus_loader import CorpusLoader
 from panel.widgets import Tqdm, Button, TextInput
 from spacy import Language
 from spacy.tokens import Doc
@@ -327,10 +327,8 @@ class CorpusSlicer(pn.viewable.Viewer):
         self.corpora = self.corpus_loader.get_mutable_corpora()
 
         if self.model is not None:
-            self.corpus_loader.register_event_callback(EventType.BUILD, self.corpus_run_spacy)
-        self.corpus_loader.register_event_callback(EventType.BUILD, self.on_corpora_update)
-        self.corpus_loader.register_event_callback(EventType.RENAME, self.on_corpora_update)
-        self.corpus_loader.register_event_callback(EventType.DELETE, self.on_corpora_update)
+            self.corpus_loader.register_event_callback("build", self.corpus_run_spacy)
+        self.corpus_loader.register_event_callback("update", self.on_corpora_update)
         self.on_corpora_update()
         self.corpus_loader.add_tab("Corpus Slicer", self.slicer_panel)
 
@@ -426,12 +424,12 @@ class CorpusSlicer(pn.viewable.Viewer):
                 sliced_corpus = corpus.cloned(mask)
             self.corpora.add(sliced_corpus)
 
-            self.on_corpora_update()
             self.slicer_params.reset_filters()
 
             self.slice_corpus_button.button_style = "solid"
             self.progress_bar.visible = False
             self.sliced_name_field.value = ""
+            self.corpus_loader.trigger_event("update")
             self.display_success("Corpus sliced successfully")
         except Exception as e:
             self.slice_corpus_button.button_style = "solid"
